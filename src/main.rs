@@ -18,7 +18,7 @@ fn main() {
         Sequence::Sjik,
         Sequence::Sjki,
         Sequence::Skij,
-        Sequence::Skii,
+        Sequence::Skji,
     ];
     Evaluator::evaluate(dimensions, cache_line_sizes, cache_line_numbers, sequences);
 }

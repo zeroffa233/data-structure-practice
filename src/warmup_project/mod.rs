@@ -10,7 +10,7 @@ pub enum Sequence {
     Sjik,
     Sjki,
     Skij,
-    Skii,
+    Skji,
 }
 
 impl Sequence {
@@ -21,7 +21,7 @@ impl Sequence {
             Sequence::Sjik => "Sjik",
             Sequence::Sjki => "Sjki",
             Sequence::Skij => "Skij",
-            Sequence::Skii => "Skii",
+            Sequence::Skji => "Skji",
         }
     }
 }
@@ -259,7 +259,7 @@ impl Calculator {
             Sequence::Sjik => self.calculate_jik(n),
             Sequence::Sjki => self.calculate_jki(n),
             Sequence::Skij => self.calculate_kij(n),
-            Sequence::Skii => self.calculate_kji(n),
+            Sequence::Skji => self.calculate_kji(n),
         }
         println!("> 矩阵乘法计算完毕，计算结果为:\n{:?}", self.matrix_c.data);
         println!("> 计算过程中Cache未命中次数: {}", self.cache_miss);
