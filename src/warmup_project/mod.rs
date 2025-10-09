@@ -3,6 +3,7 @@ use io::*;
 use rand::Rng;
 use std::*;
 
+#[derive(Clone, Debug)]
 pub enum Sequence {
     Sijk,
     Sikj,
@@ -10,6 +11,19 @@ pub enum Sequence {
     Sjki,
     Skij,
     Skii,
+}
+
+impl Sequence {
+    pub fn to_string(&self) -> &str {
+        match self {
+            Sequence::Sijk => "Sijk",
+            Sequence::Sikj => "Sikj",
+            Sequence::Sjik => "Sjik",
+            Sequence::Sjki => "Sjki",
+            Sequence::Skij => "Skij",
+            Sequence::Skii => "Skii",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -47,6 +61,15 @@ pub struct Calculator {
     pub matrix_b: Matrix,
     pub matrix_c: Matrix,
     pub cache: Cache,
+    pub cache_miss: u32,
+}
+
+pub struct Evaluator;
+
+pub struct EvalResult {
+    pub dimension: u32,
+    pub cache_line_size: u32,
+    pub cache_line_number: u32,
     pub cache_miss: u32,
 }
 
@@ -262,70 +285,155 @@ impl Calculator {
     }
 
     fn calculate_ikj(&mut self, n: usize) {
-        let matrix_a = &self.matrix_a;
-        let matrix_b = &self.matrix_b;
-        let matrix_c = &mut self.matrix_c;
+        let temp_matrix_a = self.matrix_a.clone();
+        let temp_matrix_b = self.matrix_b.clone();
+        let mut temp_matrix_c = self.matrix_c.clone();
+
         for i in 0..n {
             for k in 0..n {
-                let a_ik = matrix_a.data[i][k];
                 for j in 0..n {
-                    matrix_c.data[i][j] += a_ik * matrix_b.data[k][j];
+                    temp_matrix_c.data[i][j] += self.get_data(&temp_matrix_a, i, k).unwrap()
+                        * self.get_data(&temp_matrix_b, k, j).unwrap();
                 }
             }
         }
+
+        self.matrix_c = temp_matrix_c;
+        self.matrix_c.data_to_file();
     }
+
     fn calculate_jik(&mut self, n: usize) {
-        let matrix_a = &self.matrix_a;
-        let matrix_b = &self.matrix_b;
-        let matrix_c = &mut self.matrix_c;
+        let temp_matrix_a = self.matrix_a.clone();
+        let temp_matrix_b = self.matrix_b.clone();
+        let mut temp_matrix_c = self.matrix_c.clone();
+
         for j in 0..n {
             for i in 0..n {
-                let mut sum = 0;
                 for k in 0..n {
-                    sum += matrix_a.data[i][k] * matrix_b.data[k][j];
+                    temp_matrix_c.data[i][j] += self.get_data(&temp_matrix_a, i, k).unwrap()
+                        * self.get_data(&temp_matrix_b, k, j).unwrap();
                 }
-                matrix_c.data[i][j] += sum;
             }
         }
+
+        self.matrix_c = temp_matrix_c;
+        self.matrix_c.data_to_file();
     }
+
     fn calculate_jki(&mut self, n: usize) {
-        let matrix_a = &self.matrix_a;
-        let matrix_b = &self.matrix_b;
-        let matrix_c = &mut self.matrix_c;
+        let temp_matrix_a = self.matrix_a.clone();
+        let temp_matrix_b = self.matrix_b.clone();
+        let mut temp_matrix_c = self.matrix_c.clone();
+
         for j in 0..n {
             for k in 0..n {
-                let b_kj = matrix_b.data[k][j];
                 for i in 0..n {
-                    matrix_c.data[i][j] += matrix_a.data[i][k] * b_kj;
+                    temp_matrix_c.data[i][j] += self.get_data(&temp_matrix_a, i, k).unwrap()
+                        * self.get_data(&temp_matrix_b, k, j).unwrap();
                 }
             }
         }
+
+        self.matrix_c = temp_matrix_c;
+        self.matrix_c.data_to_file();
     }
+
     fn calculate_kij(&mut self, n: usize) {
-        let matrix_a = &self.matrix_a;
-        let matrix_b = &self.matrix_b;
-        let matrix_c = &mut self.matrix_c;
+        let temp_matrix_a = self.matrix_a.clone();
+        let temp_matrix_b = self.matrix_b.clone();
+        let mut temp_matrix_c = self.matrix_c.clone();
+
         for k in 0..n {
             for i in 0..n {
-                let a_ik = matrix_a.data[i][k];
                 for j in 0..n {
-                    matrix_c.data[i][j] += a_ik * matrix_b.data[k][j];
+                    temp_matrix_c.data[i][j] += self.get_data(&temp_matrix_a, i, k).unwrap()
+                        * self.get_data(&temp_matrix_b, k, j).unwrap();
                 }
             }
         }
+
+        self.matrix_c = temp_matrix_c;
+        self.matrix_c.data_to_file();
     }
+
     fn calculate_kji(&mut self, n: usize) {
-        let matrix_a = &self.matrix_a;
-        let matrix_b = &self.matrix_b;
-        let matrix_c = &mut self.matrix_c;
+        let temp_matrix_a = self.matrix_a.clone();
+        let temp_matrix_b = self.matrix_b.clone();
+        let mut temp_matrix_c = self.matrix_c.clone();
+
         for k in 0..n {
             for j in 0..n {
-                let b_kj = matrix_b.data[k][j];
                 for i in 0..n {
-                    matrix_c.data[i][j] += matrix_a.data[i][k] * b_kj;
+                    temp_matrix_c.data[i][j] += self.get_data(&temp_matrix_a, i, k).unwrap()
+                        * self.get_data(&temp_matrix_b, k, j).unwrap();
                 }
             }
         }
+
+        self.matrix_c = temp_matrix_c;
+        self.matrix_c.data_to_file();
     }
 }
 
+impl Evaluator {
+    /// # 生成评测数据
+    ///
+    /// 因变量：cache miss count
+    ///
+    /// 自变量：循环顺序、dimension、cache line size、cache line number
+    ///
+    /// ## 输出
+    ///
+    /// 每个循环顺序一个文件，评测数据保存到 `./data/evaluation_results.csv`
+    ///
+    pub fn evaluate(
+        dimensions: Vec<u32>,
+        cache_line_sizes: Vec<u32>,
+        cache_line_numbers: Vec<u32>,
+        sequences: Vec<Sequence>,
+    ) {
+        for sequence in sequences {
+            let results: Vec<EvalResult> = Vec::new();
+            let file_path = format!("./data/evaluation_{}.csv", sequence.to_string());
+            let file = File::create(&file_path).expect("无法创建评测结果文件");
+            let mut writer = BufWriter::new(file);
+            writeln!(
+                writer,
+                "dimension,cache_line_size,cache_line_number,cache_miss"
+            )
+            .expect("无法写入评测结果文件");
+            for &dimension in &dimensions {
+                for &cache_line_size in &cache_line_sizes {
+                    for &cache_line_number in &cache_line_numbers {
+                        let matrix_a = Matrix::new(
+                            0,
+                            dimension,
+                            &format!("./data/matrix_a_{}.txt", dimension),
+                        );
+                        let matrix_b = Matrix::new(
+                            1,
+                            dimension,
+                            &format!("./data/matrix_b_{}.txt", dimension),
+                        );
+                        let cache = Cache::new(cache_line_number, cache_line_size);
+                        let mut calculator = Calculator::new(
+                            matrix_a,
+                            matrix_b,
+                            cache,
+                            &format!("./data/matrix_c_{}.txt", dimension),
+                        );
+                        calculator.calculate(sequence.clone());
+                        writeln!(
+                            writer,
+                            "{},{},{},{}",
+                            dimension, cache_line_size, cache_line_number, calculator.cache_miss
+                        )
+                        .expect("无法写入评测结果文件");
+                    }
+                }
+            }
+            writer.flush().expect("无法刷新评测结果文件");
+            println!("> 评测结果已保存到文件: {}", file_path);
+        }
+    }
+}
