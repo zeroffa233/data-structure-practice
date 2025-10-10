@@ -75,6 +75,8 @@ pub struct EvalResult {
 
 impl Matrix {
     pub fn new(id: u32, dimension: u32, file_path: &str) -> Matrix {
+        let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+        let file_path = format!("{}/data/warmup_project/{}", cargo_manifest_dir, file_path);
         let mut data = Vec::with_capacity(dimension as usize);
         let mut rng = rand::rng();
         println!("> 开始生成随机矩阵...");
@@ -110,6 +112,8 @@ impl Matrix {
     }
 
     pub fn from_file(id: u32, file_path: &str) -> Matrix {
+        let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+        let file_path = format!("{}/data/warmup_project/{}", cargo_manifest_dir, file_path);
         let file = File::open(file_path).expect("无法打开文件");
         let reader = BufReader::new(file);
         let mut data = Vec::new();
@@ -183,6 +187,8 @@ impl Cache {
 
 impl Calculator {
     pub fn new(matrix_a: Matrix, matrix_b: Matrix, cache: Cache, c_file_path: &str) -> Calculator {
+        let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+        let c_file_path = format!("{}/data/warmup_project/{}", cargo_manifest_dir, c_file_path);
         let dimension = matrix_a.dimension;
         let matrix_c = Matrix {
             id: 2,
@@ -394,7 +400,12 @@ impl Evaluator {
     ) {
         for sequence in sequences {
             let results: Vec<EvalResult> = Vec::new();
-            let file_path = format!("./data/evaluation_{}.csv", sequence.to_string());
+            let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+            let file_path = format!(
+                "{}/data/warmup_project/origin_data/evaluation_{}.csv",
+                cargo_manifest_dir,
+                sequence.to_string()
+            );
             let file = File::create(&file_path).expect("无法创建评测结果文件");
             let mut writer = BufWriter::new(file);
             writeln!(
