@@ -77,6 +77,7 @@ impl Matrix {
     pub fn new(id: u32, dimension: u32, file_path: &str) -> Matrix {
         let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
         let file_path = format!("{}/data/warmup_project/{}", cargo_manifest_dir, file_path);
+        let file_path_str = file_path.clone(); // 修复：提前 clone 一份
         let mut data = Vec::with_capacity(dimension as usize);
         let mut rng = rand::rng();
         println!("> 开始生成随机矩阵...");
@@ -98,7 +99,7 @@ impl Matrix {
         }
         writer.flush().expect("无法刷新缓冲区");
 
-        println!("> 随机矩阵生成完毕，已保存到文件: {}", file_path);
+        println!("> 随机矩阵生成完毕，已保存到文件: {}", file_path_str);
 
         // 打印矩阵
         println!("> 生成矩阵为:\n{:?}", data);
@@ -106,7 +107,7 @@ impl Matrix {
         Matrix {
             id,
             dimension,
-            file_path: file_path.to_string(),
+            file_path: file_path_str,
             data,
         }
     }
@@ -114,7 +115,7 @@ impl Matrix {
     pub fn from_file(id: u32, file_path: &str) -> Matrix {
         let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
         let file_path = format!("{}/data/warmup_project/{}", cargo_manifest_dir, file_path);
-        let file = File::open(file_path).expect("无法打开文件");
+        let file = File::open(file_path.clone()).expect("无法打开文件");
         let reader = BufReader::new(file);
         let mut data = Vec::new();
         for line in reader.lines() {
@@ -447,4 +448,19 @@ impl Evaluator {
             println!("> 评测结果已保存到文件: {}", file_path);
         }
     }
+}
+
+pub fn run() {
+    let dimensions = vec![3, 6, 10, 20, 50, 100];
+    let cache_line_sizes = vec![1, 2, 4, 8, 16, 32, 64];
+    let cache_line_numbers = vec![1, 2, 4, 8, 16, 32, 64];
+    let sequences = vec![
+        Sequence::Sijk,
+        Sequence::Sikj,
+        Sequence::Sjik,
+        Sequence::Sjki,
+        Sequence::Skij,
+        Sequence::Skji,
+    ];
+    Evaluator::evaluate(dimensions, cache_line_sizes, cache_line_numbers, sequences);
 }
