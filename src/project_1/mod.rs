@@ -1,7 +1,9 @@
 use fs::*;
 use io::*;
 use rand::Rng;
+use std::time::{Duration, Instant};
 use std::*;
+
 pub struct SourceFileGenerator {
     pub n: u64,
     pub min: i32,
@@ -232,21 +234,45 @@ impl Merger {
     }
 }
 
-pub fn run() {
-    let source_generator = SourceFileGenerator::new(100, -1000, 1000, "nums.txt".to_string());
-    source_generator.generate_file();
-
+pub fn run(run_length: u32) -> Duration {
     let run_generator = RunGenerator::new(
-        10,
+        run_length,
         "nums.txt".to_string(),
         "merge_passes/merge_pass_0".to_string(),
     );
-    run_generator.generate_run_file();
 
     let mut merger = Merger::new(
         "merge_passes/merge_pass_0".to_string(),
         "merge_passes".to_string(),
     );
 
+    let start_time = Instant::now();
+
+    run_generator.generate_run_file();
     merger.merge();
+
+    let end_time = Instant::now();
+
+    let elapsed_time = end_time.duration_since(start_time);
+
+    println!("> 排序耗时 {} 毫秒。", elapsed_time.as_millis());
+
+    elapsed_time
+}
+
+pub fn evaluate(min_run_length: u32, max_run_length: u32, step: u32, n: u64) {
+    //在data/project_1/origin_data.csv中记录不同run_length下的排序时间
+    let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let output_file_path = format!("{}/data/project_1/origin_data.csv", cargo_manifest_dir);
+    let file = File::create(&output_file_path).expect("Unable to create file");
+    let mut writer = BufWriter::with_capacity(1024, file);
+    writeln!(writer, "run_length,elapsed_time_ms").expect("Unable to write data");
+    let source_generator = SourceFileGenerator::new(n, -1000, 1000, "nums.txt".to_string());
+    source_generator.generate_file();
+    for run_length in (min_run_length..=max_run_length).step_by(step as usize) {
+        let elapsed_time = run(run_length);
+        writeln!(writer, "{},{}", run_length, elapsed_time.as_millis())
+            .expect("Unable to write data");
+    }
+    println!("> 评估数据已保存到 {}", output_file_path);
 }

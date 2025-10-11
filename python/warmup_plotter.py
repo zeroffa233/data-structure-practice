@@ -31,8 +31,8 @@ import re
 # 用户可以根据需要修改此部分参数
 # ==============================================================================
 # 定义数据和输出目录路径
-DATA_DIR = '../data'
-OUTPUT_DIR = '../output'
+DATA_DIR = '../data/warmup_project/origin_data'
+OUTPUT_DIR = '../data/warmup_project/plots'
 
 # 定义CSV文件中的原始列名
 # 'group': 用于分组生成不同图片的变量
