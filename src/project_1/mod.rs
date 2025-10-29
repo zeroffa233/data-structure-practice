@@ -1,278 +1,467 @@
+#![allow(unused)]
 use fs::*;
 use io::*;
 use rand::Rng;
-use std::time::{Duration, Instant};
 use std::*;
 
-pub struct SourceFileGenerator {
-    pub n: u64,
-    pub min: i32,
-    pub max: i32,
-    pub output_file_path: String,
+#[derive(Clone, Debug)]
+pub enum Sequence {
+    Sijk,
+    Sikj,
+    Sjik,
+    Sjki,
+    Skij,
+    Skji,
 }
 
-impl SourceFileGenerator {
-    pub fn new(n: u64, min: i32, max: i32, output_file_path: String) -> Self {
+impl Sequence {
+    pub fn to_string(&self) -> &str {
+        match self {
+            Sequence::Sijk => "Sijk",
+            Sequence::Sikj => "Sikj",
+            Sequence::Sjik => "Sjik",
+            Sequence::Sjki => "Sjki",
+            Sequence::Skij => "Skij",
+            Sequence::Skji => "Skji",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Address {
+    pub tag: u32,
+    pub index: u32,
+    pub offset: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct CacheLine {
+    pub cache_line_size: u32,
+    pub valid: bool,
+    pub tag: u32,
+    pub data: Vec<u32>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Cache {
+    pub line_number: u32,
+    pub lines: Vec<CacheLine>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Matrix {
+    pub id: u32,
+    pub dimension: u32,
+    pub file_path: String,
+    pub data: Vec<Vec<u32>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Calculator {
+    pub matrix_a: Matrix,
+    pub matrix_b: Matrix,
+    pub matrix_c: Matrix,
+    pub cache: Cache,
+    pub cache_miss: u32,
+}
+
+pub struct Evaluator;
+
+pub struct EvalResult {
+    pub dimension: u32,
+    pub cache_line_size: u32,
+    pub cache_line_number: u32,
+    pub cache_miss: u32,
+}
+
+impl Matrix {
+    pub fn new(id: u32, dimension: u32, file_path: &str) -> Matrix {
         let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-        let output_file_path =
-            format!("{}/data/project_1/{}", cargo_manifest_dir, output_file_path);
-        Self {
-            n,
-            min,
-            max,
-            output_file_path,
+        let file_path = format!("{}/data/project_1/{}", cargo_manifest_dir, file_path);
+        let file_path_str = file_path.clone(); // 修复：提前 clone 一份
+        let mut data = Vec::with_capacity(dimension as usize);
+        let mut rng = rand::rng();
+        println!("> 开始生成随机矩阵...");
+        for _ in 0..dimension {
+            let row: Vec<u32> = (0..dimension).map(|_| rng.random_range(0..100)).collect();
+            data.push(row);
+        }
+
+        // 将矩阵写入文件
+        let file = File::create(file_path).expect("无法创建文件");
+        let mut writer = BufWriter::new(file);
+        for row in &data {
+            let line = row
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<String>>()
+                .join(" ");
+            writeln!(writer, "{}", line).expect("无法写入文件");
+        }
+        writer.flush().expect("无法刷新缓冲区");
+
+        println!("> 随机矩阵生成完毕，已保存到文件: {}", file_path_str);
+
+        // 打印矩阵
+        println!("> 生成矩阵为:\n{:?}", data);
+
+        Matrix {
+            id,
+            dimension,
+            file_path: file_path_str,
+            data,
         }
     }
-    pub fn generate_file(&self) {
-        println!("> 开始生成随机数字序列文件...");
-        let file = File::create(&self.output_file_path).expect("Unable to create file");
-        let mut writer = BufWriter::with_capacity(1024, file);
-        for _ in 0..self.n {
-            let num = rand::rng().random_range(self.min..=self.max);
-            write!(writer, "{} ", num).expect("Unable to write data");
-        }
-        println!(
-            "> 随机数字序列文件生成完毕，文件路径：{}",
-            self.output_file_path
-        );
-    }
-}
 
-pub struct RunGenerator {
-    pub run_length: u32,
-    pub input_file_path: String,
-    pub output_file_path: String,
-}
-
-impl RunGenerator {
-    pub fn new(run_length: u32, input_file_path: String, output_file_path: String) -> Self {
+    pub fn from_file(id: u32, file_path: &str) -> Matrix {
         let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-        let input_file_path = format!("{}/data/project_1/{}", cargo_manifest_dir, input_file_path);
-        let output_file_path =
-            format!("{}/data/project_1/{}", cargo_manifest_dir, output_file_path);
-        Self {
-            run_length,
-            input_file_path,
-            output_file_path,
+        let file_path = format!("{}/data/project_1/{}", cargo_manifest_dir, file_path);
+        let file = File::open(file_path.clone()).expect("无法打开文件");
+        let reader = BufReader::new(file);
+        let mut data = Vec::new();
+        for line in reader.lines() {
+            let line = line.expect("无法读取行");
+            let row: Vec<u32> = line
+                .split_whitespace()
+                .map(|v| v.parse().expect("无法解析数字"))
+                .collect();
+            data.push(row);
+        }
+        let dimension = data.len() as u32;
+        Matrix {
+            id,
+            dimension,
+            file_path: file_path.to_string(),
+            data,
         }
     }
 
-    pub fn generate_run_file(&self) {
-        println!("> 开始生成顺串文件...");
-        let input_file = File::open(&self.input_file_path).expect("Unable to open input file");
+    pub fn data_to_file(&self) {
+        let file = File::create(self.file_path.clone()).expect("无法创建文件");
+        let mut writer = BufWriter::new(file);
+        for row in &self.data {
+            let line = row
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<String>>()
+                .join(" ");
+            writeln!(writer, "{}", line).expect("无法写入文件");
+        }
+        writer.flush().expect("无法刷新缓冲区");
+        println!("> 矩阵已保存到文件: {}", self.file_path);
+    }
 
-        let reader = BufReader::new(input_file);
+    pub fn file_to_data(&mut self) {
+        let file = File::open(&self.file_path).expect("无法打开文件");
+        let reader = BufReader::new(file);
+        self.data.clear();
+        for line in reader.lines() {
+            let line = line.expect("无法读取行");
+            let row: Vec<u32> = line
+                .split_whitespace()
+                .map(|v| v.parse().expect("无法解析数字"))
+                .collect();
+            self.data.push(row);
+        }
+    }
+}
 
-        let mut run_count = 0;
+impl CacheLine {
+    pub fn new(cache_line_size: u32) -> CacheLine {
+        CacheLine {
+            cache_line_size,
+            valid: false,
+            tag: 0,
+            data: vec![0; cache_line_size as usize],
+        }
+    }
+}
 
-        let mut numbers: Vec<i32> = Vec::with_capacity(self.run_length as usize);
-        let mut current_number = String::new();
+impl Cache {
+    pub fn new(line_number: u32, cache_line_size: u32) -> Cache {
+        let mut lines = Vec::with_capacity(line_number as usize);
+        for _ in 0..line_number {
+            lines.push(CacheLine::new(cache_line_size));
+        }
+        Cache { line_number, lines }
+    }
+}
 
-        // 4. 逐字节迭代处理
-        for byte_result in reader.bytes() {
-            let byte = byte_result.expect("Unable to read byte");
-            let ch = byte as char;
+impl Calculator {
+    pub fn new(matrix_a: Matrix, matrix_b: Matrix, cache: Cache, c_file_path: &str) -> Calculator {
+        let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+        let c_file_path = format!("{}/data/project_1/{}", cargo_manifest_dir, c_file_path);
+        let dimension = matrix_a.dimension;
+        let matrix_c = Matrix {
+            id: 2,
+            dimension,
+            file_path: c_file_path.to_string(),
+            data: vec![vec![0; dimension as usize]; dimension as usize],
+        };
+        Calculator {
+            matrix_a,
+            matrix_b,
+            matrix_c,
+            cache,
+            cache_miss: 0,
+        }
+    }
 
-            if ch.is_digit(10) || (ch == '-' && current_number.is_empty()) {
-                current_number.push(ch);
-            } else if ch.is_whitespace() && !current_number.is_empty() {
-                // b. 遇到空格或换行，解析当前数字
-                if let Ok(num) = current_number.parse::<i32>() {
-                    numbers.push(num);
+    pub fn parse_address(&self, matrix: &Matrix, i: usize, j: usize) -> Address {
+        // 元素的一维索引 = (i * dimension + j)
+        let address = i * matrix.dimension as usize + j;
+        // 偏移 = address % cache_line_size
+        let offset = (address % (self.cache.lines[0].cache_line_size as usize)) as u32;
+        // 索引 = (address / cache_line_size) % line_number
+        let index = ((address / (self.cache.lines[0].cache_line_size as usize))
+            % self.cache.line_number as usize) as u32;
+        // 标签 = (address / cache_line_size) / line_number + matrix.id * line_number
+        let tag = ((address / (self.cache.lines[0].cache_line_size as usize))
+            / self.cache.line_number as usize) as u32
+            + (matrix.id * self.cache.line_number) as u32;
+
+        Address { tag, index, offset }
+    }
+
+    pub fn get_data(&mut self, matrix: &Matrix, i: usize, j: usize) -> Option<u32> {
+        // 越界检查
+        if i >= matrix.dimension as usize || j >= matrix.dimension as usize {
+            return None;
+        }
+        // 解析地址
+        let address = self.parse_address(matrix, i, j);
+        let line = &mut self.cache.lines[address.index as usize];
+        if line.valid && line.tag == address.tag {
+            // Cache命中
+            Some(line.data[address.offset as usize])
+        } else {
+            // Cache未命中
+            self.cache_miss += 1;
+            // 从矩阵中加载数据到Cache行
+            line.valid = true;
+            line.tag = address.tag;
+            let start = (address.index * line.cache_line_size) as usize;
+            for o in 0..line.cache_line_size as usize {
+                let idx = start + o;
+                let row = idx / matrix.dimension as usize;
+                let col = idx % matrix.dimension as usize;
+                if row < matrix.dimension as usize && col < matrix.dimension as usize {
+                    line.data[o] = matrix.data[row][col];
+                } else {
+                    line.data[o] = 0; // 超出矩阵范围，填充0
                 }
-                current_number.clear();
+            }
+            Some(line.data[address.offset as usize])
+        }
+    }
 
-                if numbers.len() >= self.run_length as usize {
-                    numbers.sort_unstable();
-                    let output_file_path =
-                        format!("{}/run_{}.txt", self.output_file_path, run_count);
-                    let output_file = File::create(&output_file_path)
-                        .expect("Unable to open or create output file");
-                    let mut writer = BufWriter::new(output_file);
-                    for num in &numbers {
-                        writer
-                            .write_all(format!("{} ", num).as_bytes())
-                            .expect("Unable to write data");
+    pub fn calculate(&mut self, sequence: Sequence) {
+        if self.matrix_a.dimension != self.matrix_b.dimension {
+            panic!("矩阵维度不匹配，无法相乘");
+        }
+        let n = self.matrix_a.dimension as usize;
+        println!("> 开始进行矩阵乘法计算...");
+        match sequence {
+            Sequence::Sijk => self.calculate_ijk(n),
+            Sequence::Sikj => self.calculate_ikj(n),
+            Sequence::Sjik => self.calculate_jik(n),
+            Sequence::Sjki => self.calculate_jki(n),
+            Sequence::Skij => self.calculate_kij(n),
+            Sequence::Skji => self.calculate_kji(n),
+        }
+        println!("> 矩阵乘法计算完毕，计算结果为:\n{:?}", self.matrix_c.data);
+        println!("> 计算过程中Cache未命中次数: {}", self.cache_miss);
+        self.matrix_c.data_to_file();
+    }
+
+    fn calculate_ijk(&mut self, n: usize) {
+        let temp_matrix_a = self.matrix_a.clone();
+        let temp_matrix_b = self.matrix_b.clone();
+        let mut temp_matrix_c = self.matrix_c.clone();
+
+        for i in 0..n {
+            for j in 0..n {
+                for k in 0..n {
+                    temp_matrix_c.data[i][j] += self.get_data(&temp_matrix_a, i, k).unwrap()
+                        * self.get_data(&temp_matrix_b, k, j).unwrap();
+                }
+            }
+        }
+
+        self.matrix_c = temp_matrix_c;
+        self.matrix_c.data_to_file();
+    }
+
+    fn calculate_ikj(&mut self, n: usize) {
+        let temp_matrix_a = self.matrix_a.clone();
+        let temp_matrix_b = self.matrix_b.clone();
+        let mut temp_matrix_c = self.matrix_c.clone();
+
+        for i in 0..n {
+            for k in 0..n {
+                for j in 0..n {
+                    temp_matrix_c.data[i][j] += self.get_data(&temp_matrix_a, i, k).unwrap()
+                        * self.get_data(&temp_matrix_b, k, j).unwrap();
+                }
+            }
+        }
+
+        self.matrix_c = temp_matrix_c;
+        self.matrix_c.data_to_file();
+    }
+
+    fn calculate_jik(&mut self, n: usize) {
+        let temp_matrix_a = self.matrix_a.clone();
+        let temp_matrix_b = self.matrix_b.clone();
+        let mut temp_matrix_c = self.matrix_c.clone();
+
+        for j in 0..n {
+            for i in 0..n {
+                for k in 0..n {
+                    temp_matrix_c.data[i][j] += self.get_data(&temp_matrix_a, i, k).unwrap()
+                        * self.get_data(&temp_matrix_b, k, j).unwrap();
+                }
+            }
+        }
+
+        self.matrix_c = temp_matrix_c;
+        self.matrix_c.data_to_file();
+    }
+
+    fn calculate_jki(&mut self, n: usize) {
+        let temp_matrix_a = self.matrix_a.clone();
+        let temp_matrix_b = self.matrix_b.clone();
+        let mut temp_matrix_c = self.matrix_c.clone();
+
+        for j in 0..n {
+            for k in 0..n {
+                for i in 0..n {
+                    temp_matrix_c.data[i][j] += self.get_data(&temp_matrix_a, i, k).unwrap()
+                        * self.get_data(&temp_matrix_b, k, j).unwrap();
+                }
+            }
+        }
+
+        self.matrix_c = temp_matrix_c;
+        self.matrix_c.data_to_file();
+    }
+
+    fn calculate_kij(&mut self, n: usize) {
+        let temp_matrix_a = self.matrix_a.clone();
+        let temp_matrix_b = self.matrix_b.clone();
+        let mut temp_matrix_c = self.matrix_c.clone();
+
+        for k in 0..n {
+            for i in 0..n {
+                for j in 0..n {
+                    temp_matrix_c.data[i][j] += self.get_data(&temp_matrix_a, i, k).unwrap()
+                        * self.get_data(&temp_matrix_b, k, j).unwrap();
+                }
+            }
+        }
+
+        self.matrix_c = temp_matrix_c;
+        self.matrix_c.data_to_file();
+    }
+
+    fn calculate_kji(&mut self, n: usize) {
+        let temp_matrix_a = self.matrix_a.clone();
+        let temp_matrix_b = self.matrix_b.clone();
+        let mut temp_matrix_c = self.matrix_c.clone();
+
+        for k in 0..n {
+            for j in 0..n {
+                for i in 0..n {
+                    temp_matrix_c.data[i][j] += self.get_data(&temp_matrix_a, i, k).unwrap()
+                        * self.get_data(&temp_matrix_b, k, j).unwrap();
+                }
+            }
+        }
+
+        self.matrix_c = temp_matrix_c;
+        self.matrix_c.data_to_file();
+    }
+}
+
+impl Evaluator {
+    /// # 生成评测数据
+    ///
+    /// 因变量：cache miss count
+    ///
+    /// 自变量：循环顺序、dimension、cache line size、cache line number
+    ///
+    /// ## 输出
+    ///
+    /// 每个循环顺序一个文件，评测数据保存到 `./data/evaluation_results.csv`
+    ///
+    pub fn evaluate(
+        dimensions: Vec<u32>,
+        cache_line_sizes: Vec<u32>,
+        cache_line_numbers: Vec<u32>,
+        sequences: Vec<Sequence>,
+    ) {
+        for sequence in sequences {
+            let results: Vec<EvalResult> = Vec::new();
+            let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+            let file_path = format!(
+                "{}/data/project_1/origin_data/evaluation_{}.csv",
+                cargo_manifest_dir,
+                sequence.to_string()
+            );
+            let file = File::create(&file_path).expect("无法创建评测结果文件");
+            let mut writer = BufWriter::new(file);
+            writeln!(
+                writer,
+                "dimension,cache_line_size,cache_line_number,cache_miss"
+            )
+            .expect("无法写入评测结果文件");
+            for &dimension in &dimensions {
+                for &cache_line_size in &cache_line_sizes {
+                    for &cache_line_number in &cache_line_numbers {
+                        let matrix_a = Matrix::new(
+                            0,
+                            dimension,
+                            &format!("./data/matrix_a_{}.txt", dimension),
+                        );
+                        let matrix_b = Matrix::new(
+                            1,
+                            dimension,
+                            &format!("./data/matrix_b_{}.txt", dimension),
+                        );
+                        let cache = Cache::new(cache_line_number, cache_line_size);
+                        let mut calculator = Calculator::new(
+                            matrix_a,
+                            matrix_b,
+                            cache,
+                            &format!("./data/matrix_c_{}.txt", dimension),
+                        );
+                        calculator.calculate(sequence.clone());
+                        writeln!(
+                            writer,
+                            "{},{},{},{}",
+                            dimension, cache_line_size, cache_line_number, calculator.cache_miss
+                        )
+                        .expect("无法写入评测结果文件");
                     }
-                    run_count += 1;
-                    numbers.clear();
                 }
             }
+            writer.flush().expect("无法刷新评测结果文件");
+            println!("> 评测结果已保存到文件: {}", file_path);
         }
-        println!("> 顺串文件生成完毕，文件路径：{}", self.output_file_path);
     }
 }
 
-pub struct Merger {
-    pub input_file_path: String,
-    pub output_file_path: String,
-    pub merge_pass_count: u32,
-}
-
-impl Merger {
-    pub fn new(input_file_path: String, output_file_path: String) -> Self {
-        let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-        let input_file_path = format!("{}/data/project_1/{}", cargo_manifest_dir, input_file_path);
-        let output_file_path =
-            format!("{}/data/project_1/{}", cargo_manifest_dir, output_file_path);
-        let merge_pass_count = 1;
-        Self {
-            input_file_path,
-            output_file_path,
-            merge_pass_count,
-        }
-    }
-
-    pub fn merge(&mut self) {
-        println!("> 开始进行归并排序...");
-        loop {
-            let dir = fs::read_dir(self.input_file_path.clone()).expect(
-                format!("Unable to read input directory: {}", self.input_file_path).as_str(),
-            );
-            let runs_count = dir.count() as u32;
-            let merged_runs_count = (runs_count + 1) / 2;
-            for idx in 0..merged_runs_count {
-                let run_1_index = idx * 2;
-                let run_2_index = idx * 2 + 1;
-                if run_2_index >= runs_count {
-                    let last_run_path = format!("{}/run_{}.txt", self.input_file_path, run_1_index);
-                    let output_run_path = format!(
-                        "{}/merge_pass_{}/run_{}.txt",
-                        self.output_file_path,
-                        self.merge_pass_count,
-                        run_1_index / 2
-                    );
-                    fs::create_dir_all(format!(
-                        "{}/merge_pass_{}",
-                        self.output_file_path, self.merge_pass_count
-                    ))
-                    .expect("Unable to create output directory");
-                    fs::copy(&last_run_path, &output_run_path)
-                        .expect("Unable to copy last run file");
-                    println!(
-                        "> 复制未归并的最后一个顺串文件：{} 到 {}",
-                        last_run_path, output_run_path
-                    );
-                    break;
-                }
-                println!("> 归并第 {} 和 第 {} 个顺串...", run_1_index, run_2_index);
-                let run_1_path = format!("{}/run_{}.txt", self.input_file_path, run_1_index);
-                let run_2_path = format!("{}/run_{}.txt", self.input_file_path, run_2_index);
-                println!("> 归并文件路径：{} 和 {}", run_1_path, run_2_path);
-                let output_run_path = format!(
-                    "{}/merge_pass_{}/run_{}.txt",
-                    self.output_file_path, self.merge_pass_count, idx
-                );
-                fs::create_dir_all(format!(
-                    "{}/merge_pass_{}",
-                    self.output_file_path, self.merge_pass_count
-                ))
-                .expect("Unable to create output directory");
-                self.merge_two_runs(&run_1_path, &run_2_path, &output_run_path);
-            }
-            self.input_file_path = format!(
-                "{}/merge_pass_{}",
-                self.output_file_path, self.merge_pass_count
-            );
-            println!(
-                "> 归并第 {} 次完成，下一次归并目录：{}",
-                self.merge_pass_count, self.input_file_path
-            );
-            self.merge_pass_count += 1;
-            if runs_count <= 2 {
-                break;
-            }
-        }
-    }
-    pub fn merge_two_runs(&self, run_1_path: &str, run_2_path: &str, output_run_path: &str) {
-        let file1 = File::open(run_1_path).expect("Unable to open run 1 file");
-        let file2 = File::open(run_2_path).expect("Unable to open run 2 file");
-        let reader1 = BufReader::new(file1);
-        let reader2 = BufReader::new(file2);
-
-        let mut iter1 = reader1
-            .split(b' ')
-            .filter_map(|res| res.ok())
-            .filter_map(|bytes| String::from_utf8(bytes).ok())
-            .filter_map(|s| s.trim().parse::<i32>().ok());
-        let mut iter2 = reader2
-            .split(b' ')
-            .filter_map(|res| res.ok())
-            .filter_map(|bytes| String::from_utf8(bytes).ok())
-            .filter_map(|s| s.trim().parse::<i32>().ok());
-
-        let mut output_file =
-            File::create(output_run_path).expect("Unable to create output run file");
-        let mut writer = BufWriter::new(&mut output_file);
-
-        let mut val1 = iter1.next();
-        let mut val2 = iter2.next();
-
-        while val1.is_some() || val2.is_some() {
-            match (val1, val2) {
-                (Some(v1), Some(v2)) => {
-                    if v1 <= v2 {
-                        write!(writer, "{} ", v1).expect("Unable to write data");
-                        val1 = iter1.next();
-                    } else {
-                        write!(writer, "{} ", v2).expect("Unable to write data");
-                        val2 = iter2.next();
-                    }
-                }
-                (Some(v1), None) => {
-                    write!(writer, "{} ", v1).expect("Unable to write data");
-                    val1 = iter1.next();
-                }
-                (None, Some(v2)) => {
-                    write!(writer, "{} ", v2).expect("Unable to write data");
-                    val2 = iter2.next();
-                }
-                (None, None) => break,
-            }
-        }
-        println!("> 归并完成，输出文件路径：{}", output_run_path);
-    }
-}
-
-pub fn run(run_length: u32) -> Duration {
-    let run_generator = RunGenerator::new(
-        run_length,
-        "nums.txt".to_string(),
-        "merge_passes/merge_pass_0".to_string(),
-    );
-
-    let mut merger = Merger::new(
-        "merge_passes/merge_pass_0".to_string(),
-        "merge_passes".to_string(),
-    );
-
-    let start_time = Instant::now();
-
-    run_generator.generate_run_file();
-    merger.merge();
-
-    let end_time = Instant::now();
-
-    let elapsed_time = end_time.duration_since(start_time);
-
-    println!("> 排序耗时 {} 毫秒。", elapsed_time.as_millis());
-
-    elapsed_time
-}
-
-pub fn evaluate(min_run_length: u32, max_run_length: u32, step: u32, n: u64) {
-    //在data/project_1/origin_data.csv中记录不同run_length下的排序时间
-    let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let output_file_path = format!("{}/data/project_1/origin_data.csv", cargo_manifest_dir);
-    let file = File::create(&output_file_path).expect("Unable to create file");
-    let mut writer = BufWriter::with_capacity(1024, file);
-    writeln!(writer, "run_length,elapsed_time_ms").expect("Unable to write data");
-    let source_generator = SourceFileGenerator::new(n, -1000, 1000, "nums.txt".to_string());
-    source_generator.generate_file();
-    for run_length in (min_run_length..=max_run_length).step_by(step as usize) {
-        let elapsed_time = run(run_length);
-        writeln!(writer, "{},{}", run_length, elapsed_time.as_millis())
-            .expect("Unable to write data");
-    }
-    println!("> 评估数据已保存到 {}", output_file_path);
+pub fn run() {
+    let dimensions = vec![3, 6, 10, 20, 50, 100];
+    let cache_line_sizes = vec![1, 2, 4, 8, 16, 32, 64];
+    let cache_line_numbers = vec![1, 2, 4, 8, 16, 32, 64];
+    let sequences = vec![
+        Sequence::Sijk,
+        Sequence::Sikj,
+        Sequence::Sjik,
+        Sequence::Sjki,
+        Sequence::Skij,
+        Sequence::Skji,
+    ];
+    Evaluator::evaluate(dimensions, cache_line_sizes, cache_line_numbers, sequences);
 }
