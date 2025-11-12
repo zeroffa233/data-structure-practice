@@ -4,7 +4,7 @@ use io::*;
 use rand::Rng;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use std::*;
 
@@ -15,37 +15,70 @@ pub fn run() {
     }
 }
 
+fn resolve_manifest_relative_path(manifest_dir: &str, path: impl AsRef<Path>) -> PathBuf {
+    let path = path.as_ref();
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        Path::new(manifest_dir).join(path)
+    }
+}
+
 pub struct SourceFileGenerator {
     pub n: u64,
     pub min: i32,
     pub max: i32,
-    pub output_file_path: String,
+    pub output_file_path: PathBuf,
 }
 
 impl SourceFileGenerator {
     pub fn new(n: u64, min: i32, max: i32, output_file_path: String) -> Self {
+        Self::with_output_dir(
+            n,
+            min,
+            max,
+            Path::new("data").join("project_3"),
+            output_file_path,
+        )
+        .expect("Unable to prepare SourceFileGenerator")
+    }
+
+    pub fn with_output_dir(
+        n: u64,
+        min: i32,
+        max: i32,
+        output_dir: impl AsRef<Path>,
+        file_name: impl AsRef<Path>,
+    ) -> io::Result<Self> {
         let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-        let output_file_path =
-            format!("{}/data/project_3/{}", cargo_manifest_dir, output_file_path);
-        Self {
+        let output_dir = resolve_manifest_relative_path(&cargo_manifest_dir, output_dir);
+        fs::create_dir_all(&output_dir)?;
+        let output_file_path = output_dir.join(file_name);
+        Ok(Self {
             n,
             min,
             max,
             output_file_path,
-        }
+        })
     }
-    pub fn generate_file(&self) {
+
+    pub fn generate_file(&self) -> io::Result<()> {
         println!("> 开始生成随机数字序列文件...");
-        let file = File::create(&self.output_file_path).expect("Unable to create file");
+        if let Some(parent) = self.output_file_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let file = File::create(&self.output_file_path)?;
         let mut writer = BufWriter::with_capacity(1024, file);
         for _ in 0..self.n {
             let num = rand::rng().random_range(self.min..=self.max);
-            write!(writer, "{} ", num).expect("Unable to write data");
+            write!(writer, "{} ", num)?;
         }
         println!(
             "> 随机数字序列文件生成完毕，文件路径：{}",
-            self.output_file_path
+            self.output_file_path.display()
         );
+        writer.flush()?;
+        Ok(())
     }
 }
 
@@ -216,8 +249,9 @@ impl InputElementReader {
 }
 
 pub struct RunGenerator {
-    pub input_file_path: String,
-    pub output_file_path: String,
+    pub input_file_path: PathBuf,
+    pub runs_dir: PathBuf,
+    pub output_file_path: PathBuf,
     pub buffer_r: InputElementReader,
     pub buffer_w1: BufWriter<File>,
     pub buffer_w2: BufWriter<File>,
@@ -227,67 +261,58 @@ pub struct RunGenerator {
 
 impl RunGenerator {
     pub fn new(input_file_path: String, k: usize) -> Self {
-        let run_count = 0;
+        Self::with_dirs(
+            Path::new("data").join("project_3").join(input_file_path),
+            Path::new("data").join("project_3").join("runs"),
+            k,
+        )
+        .expect("Failed to create RunGenerator")
+    }
+
+    pub fn with_dirs(
+        input_file_path: impl AsRef<Path>,
+        runs_dir: impl AsRef<Path>,
+        k: usize,
+    ) -> io::Result<Self> {
         let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-        let input_file_path = format!("{}/data/project_3/{}", cargo_manifest_dir, input_file_path);
-        let output_file_path = format!(
-            "{}/data/project_3/runs/run_{}.txt",
-            cargo_manifest_dir, run_count
-        );
-        let mut buffer_r =
-            InputElementReader::new(File::open(&input_file_path).expect("Unable to open file"))
-                .expect("Failed to create InputElementReader");
+        let input_file_path = resolve_manifest_relative_path(&cargo_manifest_dir, input_file_path);
+        let runs_dir = resolve_manifest_relative_path(&cargo_manifest_dir, runs_dir);
+        fs::create_dir_all(&runs_dir)?;
+
+        let mut buffer_r = InputElementReader::new(File::open(&input_file_path)?)?;
 
         let mut initial_elements = Vec::with_capacity(k);
         for _ in 0..k {
-            initial_elements.push(
-                buffer_r
-                    .next_element()
-                    .expect("Read error")
-                    .unwrap_or(i32::MAX),
-            );
+            initial_elements.push(buffer_r.next_element()?.unwrap_or(i32::MAX));
         }
 
-        let mut buffer_w1 = BufWriter::with_capacity(
-            1024,
-            File::create(&output_file_path).expect("Unable to create file"),
-        );
-        let mut buffer_w2 = BufWriter::with_capacity(
-            1024,
-            File::create(&output_file_path).expect("Unable to create file"),
-        );
+        let output_file_path = runs_dir.join("run_0.txt");
+        let buffer_w1 = BufWriter::with_capacity(1024, File::create(&output_file_path)?);
+        let buffer_w2 = BufWriter::with_capacity(1024, File::create(&output_file_path)?);
         let loser_tree = LoserTree::new(initial_elements);
-        Self {
+        Ok(Self {
             input_file_path,
+            runs_dir,
             output_file_path,
             buffer_r,
             buffer_w1,
             buffer_w2,
-            run_count,
+            run_count: 0,
             loser_tree,
-        }
+        })
     }
 
-    fn update_output_file_path(&mut self, w: usize) {
-        let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-        self.output_file_path = format!(
-            "{}/data/project_3/runs/run_{}.txt",
-            cargo_manifest_dir, self.run_count
-        );
+    fn update_output_file_path(&mut self, w: usize) -> io::Result<()> {
+        self.output_file_path = self.runs_dir.join(format!("run_{}.txt", self.run_count));
         if w == 1 {
-            self.buffer_w1.flush().expect("Unable to flush buffer");
-            self.buffer_w1 = BufWriter::with_capacity(
-                1024,
-                File::create(&self.output_file_path).expect("Unable to create file"),
-            );
+            self.buffer_w1.flush()?;
+            self.buffer_w1 = BufWriter::with_capacity(1024, File::create(&self.output_file_path)?);
         } else {
-            self.buffer_w1.flush().expect("Unable to flush buffer");
-            self.buffer_w2 = BufWriter::with_capacity(
-                1024,
-                File::create(&self.output_file_path).expect("Unable to create file"),
-            );
+            self.buffer_w2.flush()?;
+            self.buffer_w2 = BufWriter::with_capacity(1024, File::create(&self.output_file_path)?);
         };
         self.run_count += 1;
+        Ok(())
     }
 
     pub fn clean_directory_contents(dir_path: &Path) -> io::Result<()> {
@@ -323,12 +348,8 @@ impl RunGenerator {
         Ok(())
     }
 
-    pub fn generate_run_file(&mut self) {
-        let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-        let merge_pass_dir = format!("{}/data/project_3/runs/", cargo_manifest_dir);
-        let merge_pass_path = Path::new(&merge_pass_dir);
-        RunGenerator::clean_directory_contents(merge_pass_path)
-            .expect("Failed to clean merge_pass_0 directory");
+    pub fn generate_run_file(&mut self) -> io::Result<()> {
+        RunGenerator::clean_directory_contents(&self.runs_dir)?;
 
         let mut pre_winner_value = i32::MIN;
         let mut all_elements_processed = false;
@@ -338,7 +359,7 @@ impl RunGenerator {
             let winner_key = self.loser_tree.get_key(winner_idx); // 使用 get_key() 获取“有效”键值
 
             if winner_key == i32::MAX {
-                self.update_output_file_path(if self.run_count % 2 == 0 { 1 } else { 2 });
+                self.update_output_file_path(if self.run_count % 2 == 0 { 1 } else { 2 })?;
                 self.loser_tree.unfreeze_all_elements();
                 self.loser_tree.build();
                 pre_winner_value = i32::MIN;
@@ -350,17 +371,16 @@ impl RunGenerator {
             }
 
             if self.run_count % 2 == 0 {
-                write!(self.buffer_w1, "{} ", winner_key).expect("Unable to write data");
+                write!(self.buffer_w1, "{} ", winner_key)?;
             } else {
-                write!(self.buffer_w2, "{} ", winner_key).expect("Unable to write data");
+                write!(self.buffer_w2, "{} ", winner_key)?;
             }
             pre_winner_value = winner_key;
 
             let next_element = self
                 .buffer_r
-                .next_element()
-                .expect("Read error")
-                .unwrap_or(i32::MAX); // 文件读完，用 MAX 填充
+                .next_element()? // 文件读完，用 MAX 填充
+                .unwrap_or(i32::MAX);
 
             let replacement: (i32, bool);
             if next_element < pre_winner_value {
@@ -373,14 +393,12 @@ impl RunGenerator {
         }
 
         if self.run_count % 2 == 0 {
-            self.buffer_w1
-                .flush()
-                .expect("Unable to flush final buffer");
+            self.buffer_w1.flush()?;
         } else {
-            self.buffer_w2
-                .flush()
-                .expect("Unable to flush final buffer");
+            self.buffer_w2.flush()?;
         }
+
+        Ok(())
     }
 }
 
@@ -843,7 +861,7 @@ impl ExperimentRunner {
             config.max_value,
             config.input_file.clone(),
         );
-        source_generator.generate_file();
+        source_generator.generate_file()?;
 
         for &k in &config.k_values {
             if k == 0 {
@@ -853,10 +871,11 @@ impl ExperimentRunner {
             RunGenerator::clean_directory_contents(&runs_dir_path)?;
 
             let mut run_generator = RunGenerator::new(config.input_file.clone(), k);
-            let mut merger = Merger::new(config.runs_dir.clone(), config.sorted_output_file.clone());
+            let mut merger =
+                Merger::new(config.runs_dir.clone(), config.sorted_output_file.clone());
 
             let start_time = Instant::now();
-            run_generator.generate_run_file();
+            run_generator.generate_run_file()?;
 
             let run_stats = RunStatistics::from_directory(&runs_dir_path)?;
             let run_stats_file = run_stats_dir_path.join(format!("k_{}.csv", k));
@@ -892,7 +911,15 @@ impl ExperimentRunner {
                 writeln!(
                     summary_writer,
                     "{},{},{},{},{},{:.2},{},{},{}",
-                    k, 0, 0, 0, 0, 0.0, elapsed_ms, plan_summary.max_depth, plan_summary.weighted_path_len
+                    k,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0.0,
+                    elapsed_ms,
+                    plan_summary.max_depth,
+                    plan_summary.weighted_path_len
                 )?;
             }
         }

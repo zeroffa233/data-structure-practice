@@ -1,9 +1,10 @@
 #![allow(unused)]
 
+use crate::project_3::{RunGenerator, SourceFileGenerator};
 use std::cmp::Ordering;
 use std::env;
 use std::fs::{self, File};
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 /// The default size (in number of elements) of each in-memory buffer.
@@ -22,6 +23,16 @@ pub struct Project4Config {
     pub extra_input_buffers: usize,
     /// Capacity of each buffer in number of integers.
     pub buffer_capacity: usize,
+    /// Name of the generated source file used to build runs when missing.
+    pub source_file: String,
+    /// How many numbers to generate when preparing a demo dataset.
+    pub total_numbers: u64,
+    /// Minimum random value for generated numbers.
+    pub min_value: i32,
+    /// Maximum random value for generated numbers.
+    pub max_value: i32,
+    /// Number of elements kept in memory when generating runs.
+    pub initial_k: usize,
 }
 
 impl Default for Project4Config {
@@ -33,6 +44,11 @@ impl Default for Project4Config {
             max_k: 16,
             extra_input_buffers: 2,
             buffer_capacity: DEFAULT_BUFFER_CAPACITY,
+            source_file: "input.txt".into(),
+            total_numbers: 10_000,
+            min_value: -10_000,
+            max_value: 10_000,
+            initial_k: 8,
         }
     }
 }
@@ -40,9 +56,47 @@ impl Default for Project4Config {
 /// Entry point used by `main` to demonstrate the project.
 pub fn run() {
     let config = Project4Config::default();
-    if let Err(err) = KWayLoserTreeMerger::new(config).and_then(|mut merger| merger.merge()) {
+    if let Err(err) = prepare_runs(&config)
+        .and_then(|_| KWayLoserTreeMerger::new(config).and_then(|mut merger| merger.merge()))
+    {
         eprintln!("[project_4] Merge failed: {}", err);
     }
+}
+
+fn prepare_runs(config: &Project4Config) -> io::Result<()> {
+    let runs_dir = Path::new(&config.runs_dir);
+    let has_existing_runs = runs_dir
+        .read_dir()
+        .map(|mut entries| {
+            entries.any(|entry| match entry {
+                Ok(entry) => entry.file_type().map(|t| t.is_file()).unwrap_or(false),
+                Err(_) => false,
+            })
+        })
+        .unwrap_or(false);
+
+    if has_existing_runs {
+        return Ok(());
+    }
+
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
+    let data_dir = Path::new(&manifest_dir).join("data/project_4");
+
+    let source_generator = SourceFileGenerator::with_output_dir(
+        config.total_numbers,
+        config.min_value,
+        config.max_value,
+        &data_dir,
+        &config.source_file,
+    )?;
+    source_generator.generate_file()?;
+
+    let source_path = source_generator.output_file_path.clone();
+    let mut run_generator =
+        RunGenerator::with_dirs(source_path, &config.runs_dir, config.initial_k)?;
+    run_generator.generate_run_file()?;
+
+    Ok(())
 }
 
 /// Merge driver that coordinates loser-tree based k-way merging with buffer pooling.
@@ -93,7 +147,8 @@ impl KWayLoserTreeMerger {
         for (idx, run_path) in self.run_files.iter().take(active_k).enumerate() {
             let file = File::open(run_path)?;
             let reader = InputElementReader::new(file)?;
-            let mut run_buffer = RunBuffer::new(idx, reader, self.config.buffer_capacity, &mut buffer_pool)?;
+            let mut run_buffer =
+                RunBuffer::new(idx, reader, self.config.buffer_capacity, &mut buffer_pool)?;
             if run_buffer.is_finished() {
                 // Skip empty runs but keep buffer bookkeeping consistent.
                 buffer_pool.release(run_buffer.take_primary_buffer());
@@ -416,8 +471,8 @@ impl InputElementReader {
             }
         }
 
-        let str_value = std::str::from_utf8(&buf)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let str_value =
+            std::str::from_utf8(&buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         let value = str_value
             .parse::<i32>()
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -488,4 +543,3 @@ impl RunStatisticsSummary {
         Ok(())
     }
 }
-
