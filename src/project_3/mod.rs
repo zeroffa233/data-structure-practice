@@ -9,15 +9,10 @@ use std::time::{Duration, Instant};
 use std::*;
 
 pub fn run() {
-    let mut generator = SourceFileGenerator::new(100, 0, 100, "nums.txt".into());
-    generator.generate_file();
-    let mut run_generator = RunGenerator::new("nums.txt".into(), 16);
-    run_generator.generate_run_file();
-    let mut merger = Merger::new("runs".into(), "sorted_nums.txt".into());
-    merger
-        .build_merge_plan()
-        .expect("Failed to build merge plan");
-    merger.merge_loop().expect("Failed to merge runs");
+    let config = ExperimentConfig::default();
+    if let Err(err) = ExperimentRunner::evaluate(config) {
+        eprintln!("[project_3] Failed to complete evaluation: {}", err);
+    }
 }
 
 pub struct SourceFileGenerator {
@@ -69,30 +64,23 @@ impl LoserTree {
         }
 
         let mut tree = Self {
-            // ls[0] 存最终胜者, ls[1..k] 存内部节点败者
-            // 为了简化索引计算 (p/2)，我们通常让 ls 的大小为 k
-            // ls[0] 是胜者
-            // ls[1]..ls[k-1] 是 k-1 个内部节点
+            // losers[0] 存最终胜者, losers[1..k] 存内部节点败者
             losers: vec![0; k], // 全部初始化为指向第一个元素
             work_area: initial_elements.into_iter().map(|v| (v, false)).collect(),
             k,
         };
 
-        tree.build(); // 构建败者树
+        tree.build();
 
         tree
     }
 
-    /// 获取最终胜者的索引 (即 losers[0])
-    /// 外部通过这个索引从 work_area[idx] 获取胜者元素
     pub fn get_winner_idx(&self) -> usize {
         self.losers[0]
     }
 
     pub fn unfreeze_all_elements(&mut self) {
         for i in 0..self.k {
-            // self.work_area[i] 是 (i32, bool)
-            // .1 是 is_frozen 标志
             if self.work_area[i].1 == true {
                 self.work_area[i].1 = false;
             }
@@ -113,28 +101,23 @@ impl LoserTree {
     }
 
     fn get_key(&self, idx: usize) -> i32 {
-        // self.work_area[idx] 是一个 (i32, bool) 元组
-        // .0 是真实值, .1 是 is_frozen 标志
         let (value, is_frozen) = self.work_area[idx];
 
         if is_frozen { i32::MAX } else { value }
     }
+
     pub fn replace_and_replay(&mut self, leaf_idx: usize, new_element: (i32, bool)) {
-        // 1. 替换工作区中的元素
         self.work_area[leaf_idx] = new_element;
 
-        // 2. 开始“重赛” (Replay)
         self.replay_match(leaf_idx);
     }
 
-    /// 从指定的叶子节点开始，向上进行比赛 (私有辅助方法)
-    /// - `leaf_idx`: 刚刚被更新的叶子节点的索引
+    /// 从指定的叶子节点开始，向上进行比赛
     fn replay_match(&mut self, leaf_idx: usize) {
-        // 'winner_idx' 是当前晋级的“胜者”的索引 (初始为刚更新的叶子)
         let mut winner_idx = leaf_idx;
 
-        // 'p' 是当前比赛发生的“内部节点”的索引
-        // (k + i) / 2 是将叶子节点(0..k-1)映射到树的下半部分(内部节点)的巧妙方法
+        // p 是当前比赛发生的“内部节点”的索引
+        // (k + i) / 2 将叶子节点(0..k-1)映射到树的下半部分
         let mut p = (self.k + leaf_idx) / 2;
 
         // 循环直到树根 (p == 0)
@@ -142,35 +125,19 @@ impl LoserTree {
             // 'loser_idx' 是存储在节点 p 的“旧败者”的索引
             let loser_idx = self.losers[p];
 
-            // [修改点]
-            // 比赛：W[winner_idx] vs W[loser_idx]
-            // 我们使用 get_key 辅助函数来获取“有效”键值
-
-            // 检查：如果当前晋级的 'winner_idx' 的 *有效键值*
-            // 大于
-            // 存储在内部节点 'p' 的“败者” 'loser_idx' 的 *有效键值*
             if self.get_key(winner_idx) > self.get_key(loser_idx) {
                 // 如果当前胜者 'winner_idx' 输了 (因为它值更大)
 
-                // 1. 将它(新的败者 'winner_idx') 存入 losers[p]
+                // 将它(新的败者 'winner_idx') 存入 losers[p]
                 self.losers[p] = winner_idx;
 
-                // 2. “旧的败者” 'loser_idx' 晋级，成为新的 'winner_idx'，
-                //    它将去参与上一层的比赛
+                // “旧的败者” 'loser_idx' 晋级，成为新的 'winner_idx'，
                 winner_idx = loser_idx;
-            } else {
-                // 如果当前胜者 'winner_idx' 赢了 (值更小或相等)
-
-                // 1. 'loser_idx' 仍然是败者，losers[p] 不变
-                // 2. 'winner_idx' 继续晋级，去参与上一层的比赛
             }
-
             // 移动到父节点
             p /= 2;
         }
 
-        // 循环结束, p == 0, 'winner_idx' 是经历了一路比赛的“最终胜者”
-        // 将其存入 losers[0]
         self.losers[0] = winner_idx;
     }
 }
@@ -182,16 +149,13 @@ pub struct InputElementReader {
 impl InputElementReader {
     /// 创建一个新的读取器，指定一个大的内部缓冲区
     pub fn new(file: File) -> io::Result<Self> {
-        // 关键：设置一个大的缓冲区，例如 8MB
         let reader = BufReader::with_capacity(8 * 1024 * 1024, file);
         Ok(Self {
             bytes: reader.bytes(),
         })
     }
 
-    /// 这是败者树算法调用的核心方法
-    /// 它返回 Option<i32>，模拟迭代器
-    /// 它会自动跳过数字之间的任意空白（空格、换行、Tab等）
+    /// 返回 Option<i32>，模拟迭代器
     pub fn next_element(&mut self) -> io::Result<Option<i32>> {
         let mut num_buf = Vec::new();
         let mut found_digit_or_sign = false;
@@ -366,77 +330,48 @@ impl RunGenerator {
         RunGenerator::clean_directory_contents(merge_pass_path)
             .expect("Failed to clean merge_pass_0 directory");
 
-        // [1] 初始化：pre_winner_value 设为最小值
         let mut pre_winner_value = i32::MIN;
-
-        // [2] 循环标志
         let mut all_elements_processed = false;
 
         while !all_elements_processed {
-            // [3] 获取胜者
             let winner_idx = self.loser_tree.get_winner_idx();
             let winner_key = self.loser_tree.get_key(winner_idx); // 使用 get_key() 获取“有效”键值
 
-            // [4] 检查：当前顺串是否结束？
             if winner_key == i32::MAX {
-                // 信号：所有 k 个槽位都已被冻结。当前顺串结束。
-
-                // 4.1 切换输出文件 (flush, close, open new)
-                // 假设 update_output_file_path 会 flush *旧* 的 buffer
                 self.update_output_file_path(if self.run_count % 2 == 0 { 1 } else { 2 });
-
-                // 4.2 取消所有元素的冻结
                 self.loser_tree.unfreeze_all_elements();
-
-                // 4.3 [关键修复] 必须重建败者树！
                 self.loser_tree.build();
-
-                // 4.4 重置 pre_winner_value，为新顺串做准备
                 pre_winner_value = i32::MIN;
-
-                // 4.5 检查：是否 *所有* 数据都已处理完毕？
-                // (如果重建后，胜者依然是 MAX，说明 work_area 里全是 MAX)
                 let new_winner_key = self.loser_tree.get_key(self.loser_tree.get_winner_idx());
                 if new_winner_key == i32::MAX {
                     all_elements_processed = true; // 退出主循环
                 }
-
-                continue; // 开始新顺串的下一次循环
+                continue;
             }
 
-            // [5] (如果顺串未结束) 输出胜者
-            // 此时 winner_key != MAX，它就是我们要输出的真实值
             if self.run_count % 2 == 0 {
                 write!(self.buffer_w1, "{} ", winner_key).expect("Unable to write data");
             } else {
                 write!(self.buffer_w2, "{} ", winner_key).expect("Unable to write data");
             }
-
-            // [6] [关键修复] 更新 pre_winner_value 为刚刚输出的值
             pre_winner_value = winner_key;
 
-            // [7] 读取下一个新元素
             let next_element = self
                 .buffer_r
                 .next_element()
                 .expect("Read error")
                 .unwrap_or(i32::MAX); // 文件读完，用 MAX 填充
 
-            // [8] [关键修复] 核心逻辑：判断新元素是否需要冻结
             let replacement: (i32, bool);
             if next_element < pre_winner_value {
-                // [Case B] 新元素太小，属于“下一个”顺串 -> 冻结
                 replacement = (next_element, true);
             } else {
-                // [Case A] 新元素OK，属于“当前”顺串 -> 不冻结
                 replacement = (next_element, false);
             }
 
-            // [9] 替换并重赛
             self.loser_tree.replace_and_replay(winner_idx, replacement);
         }
 
-        // [10] [关键修复] 循环结束后，flush 最后一个缓冲区
         if self.run_count % 2 == 0 {
             self.buffer_w1
                 .flush()
@@ -451,19 +386,12 @@ impl RunGenerator {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct MergeNode {
-    /// 权重 (这个“堆”中元素的总数)
     pub weight: u64,
-
-    /// 如果是叶子节点, 它是 Some(run_id), 例如 1 对应 "run_1.txt"
     pub leaf_id: Option<u32>,
-
-    /// 如果是内部节点 (一次合并), 它有左右子节点
     pub left: Option<Box<MergeNode>>,
     pub right: Option<Box<MergeNode>>,
 }
 
-// 为 MergeNode 实现 Ord, 以便在 BinaryHeap (最小堆) 中使用
-// 我们反转比较逻辑, 让 BinaryHeap (默认最大堆) 表现为最小堆
 impl Ord for MergeNode {
     fn cmp(&self, other: &Self) -> Ordering {
         other.weight.cmp(&self.weight)
@@ -498,20 +426,15 @@ impl Merger {
     pub fn build_merge_plan(&mut self) -> io::Result<()> {
         println!("Building merge plan from: {}", self.input_file_path);
 
-        // 1. 初始化最小堆
         let mut heap: BinaryHeap<Box<MergeNode>> = BinaryHeap::new();
 
-        // 2. 遍历 runs 目录 (使用 String 路径)
         for entry in fs::read_dir(&self.input_file_path)? {
             let entry = entry?;
             let file_name = entry.file_name().to_string_lossy().to_string();
 
-            // 3. 检查是否为 "run_X.txt" 文件
             if let Some(run_id) = parse_run_id(&file_name) {
-                // 构造完整的文件路径 (使用 String)
                 let file_path = format!("{}/{}", self.input_file_path, file_name);
 
-                // 4. 打开文件并统计元素数量
                 let file = File::open(file_path)?;
                 let mut reader = InputElementReader::new(file)?;
                 let mut count: u64 = 0;
@@ -524,7 +447,6 @@ impl Merger {
                         "Found run: {} (ID: {}, Length: {})",
                         file_name, run_id, count
                     );
-                    // 5. 创建叶子节点并推入堆
                     let leaf_node = Box::new(MergeNode {
                         weight: count,
                         leaf_id: Some(run_id),
@@ -536,15 +458,8 @@ impl Merger {
             }
         }
 
-        if heap.is_empty() {
-            println!("Warning: No runs found to merge.");
-            self.merge_plan = None;
-            return Ok(());
-        }
+        println!("Building merge tree ({} leaves)", heap.len());
 
-        println!("--- Building merge tree ({} leaves) ---", heap.len());
-
-        // 6. 运行哈夫曼算法：不断合并最小的两个节点
         while heap.len() > 1 {
             // 弹出两个权重最小的 (因为我们反转了 Ord)
             let node1 = heap.pop().unwrap();
@@ -564,17 +479,17 @@ impl Merger {
             heap.push(internal_node);
         }
 
-        // 7. 循环结束, 堆中只剩一个根节点, 这就是完整的合并计划
+        // 循环结束, 堆中只剩一个根节点, 这就是完整的合并计划
         println!(
-            "--- Merge plan complete. Total weight: {} ---",
+            "Merge plan complete. Total weight: {}",
             heap.peek().map_or(0, |n| n.weight)
         );
         self.merge_plan = heap.pop();
 
         Ok(())
     }
+
     pub fn merge_loop(&self) -> io::Result<()> {
-        // 1. 检查合并计划是否存在
         let root_node = match &self.merge_plan {
             Some(plan) => plan,
             None => {
@@ -583,74 +498,58 @@ impl Merger {
             }
         };
 
-        // 2. 准备临时目录 (例如 ".../data/project_3/temp")
-        // 我们从 'input_file_path' 推断出 'base_path'
+        // 准备临时目录 ".../data/project_3/temp"
         let base_path = self.input_file_path.strip_suffix("/runs").ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "无效的 input_file_path 格式")
         })?;
 
         let temp_dir_path = format!("{}/temp", base_path);
 
-        // 3. 清理并(重新)创建临时目录
+        // 清理并(重新)创建临时目录
         let _ = fs::remove_dir_all(&temp_dir_path); // 忽略清理失败 (可能目录不存在)
         fs::create_dir_all(&temp_dir_path)?;
 
         println!("开始合并... 临时目录: {}", temp_dir_path);
 
-        // 4. 启动递归合并
+        // 启动递归合并
         let mut temp_file_counter: u32 = 1;
         let final_file_path =
             self.execute_merge_node(root_node, &temp_dir_path, &mut temp_file_counter)?;
 
         println!("合并完成。最终文件: {}", final_file_path);
 
-        // 5. 将最终合并的文件移动到目标输出位置
+        // 将最终合并的文件移动到目标输出位置
         fs::rename(final_file_path, &self.output_file_path)?;
         println!("已将最终文件移动到: {}", self.output_file_path);
 
-        // 6. 清理临时目录
+        // 清理临时目录
         fs::remove_dir_all(temp_dir_path)?;
         println!("已清理临时目录。");
 
         Ok(())
     }
 
-    /// -------------------------------------------------------------
-    /// 辅助方法 (1): 递归执行合并节点
-    /// -------------------------------------------------------------
-    ///
-    /// 后序遍历哈夫曼树。
-    /// - `node`: 当前要处理的节点。
-    /// - `temp_dir`: 存储中间文件的目录。
-    /// - `next_temp_id`: 用于生成唯一临时文件名的计数器。
-    ///
-    /// 返回值: `Result<String>`，代表此节点处理完毕后,
-    ///         其“堆”所在的文件的路径。
-    ///
     fn execute_merge_node(
         &self,
         node: &Box<MergeNode>,
         temp_dir: &str,
         next_temp_id: &mut u32,
     ) -> io::Result<String> {
-        // --- 基本情况 (Base Case): 叶子节点 ---
         // 如果是叶子节点，它代表一个原始的 run 文件。
-        // 我们不需要做任何事，只需返回该文件的路径。
         if let Some(run_id) = node.leaf_id {
             let file_path = format!("{}/run_{}.txt", self.input_file_path, run_id);
             return Ok(file_path);
         }
 
-        // --- 递归情况 (Recursive Case): 内部节点 ---
-        // 这是一个合并操作。
+        // 否则，它是一个内部节点，需要合并其子节点
         if let (Some(left), Some(right)) = (&node.left, &node.right) {
-            // 1. 递归处理左子树 (获取左侧输入文件路径)
+            // 递归处理左子树 (获取左侧输入文件路径)
             let left_file_path = self.execute_merge_node(left, temp_dir, next_temp_id)?;
 
-            // 2. 递归处理右子树 (获取右侧输入文件路径)
+            // 递归处理右子树 (获取右侧输入文件路径)
             let right_file_path = self.execute_merge_node(right, temp_dir, next_temp_id)?;
 
-            // 3. 定义本次合并的输出文件路径
+            // 定义本次合并的输出文件路径
             let output_path = format!("{}/temp_{}.txt", temp_dir, *next_temp_id);
             *next_temp_id += 1; // 增加计数器
 
@@ -661,11 +560,10 @@ impl Merger {
                 self.get_simple_path(&output_path)
             );
 
-            // 4. 执行双路合并
+            // 执行双路合并
             self.perform_2_way_merge(&left_file_path, &right_file_path, &output_path)?;
 
-            // 5. (重要) 清理临时的输入文件
-            // 如果输入文件是临时文件 (而不是原始run), 则删除它们以节省磁盘空间
+            // 清理临时的输入文件
             if left_file_path.starts_with(temp_dir) {
                 fs::remove_file(left_file_path)?;
             }
@@ -673,7 +571,7 @@ impl Merger {
                 fs::remove_file(right_file_path)?;
             }
 
-            // 6. 返回新创建的临时文件的路径
+            // 返回新创建的临时文件的路径
             return Ok(output_path);
         }
 
@@ -681,12 +579,6 @@ impl Merger {
         Err(io::Error::new(io::ErrorKind::InvalidData, "无效的合并节点"))
     }
 
-    /// -------------------------------------------------------------
-    /// 辅助方法 (2): 执行双路合并
-    /// -------------------------------------------------------------
-    ///
-    /// 从两个已排序的输入文件读取, 将合并结果写入一个输出文件。
-    ///
     fn perform_2_way_merge(
         &self,
         in_path_1: &str,
@@ -732,18 +624,281 @@ impl Merger {
                 }
                 // 情况 4: 两个文件都已耗尽
                 (None, None) => {
-                    break; // 合并完成
+                    break;
                 }
             }
         }
 
-        writer.flush()?; // 确保所有缓冲的数据都写入磁盘
+        writer.flush()?;
         Ok(())
     }
 
-    /// 辅助方法 (3): 仅用于日志, 获取路径的最后一部分
     fn get_simple_path<'a>(&self, path: &'a str) -> &'a str {
         path.rsplit('/').next().unwrap_or(path)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RunLengthEntry {
+    pub run_id: u32,
+    pub length: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RunStatsSummary {
+    pub run_count: usize,
+    pub total_length: u64,
+    pub min_length: u64,
+    pub max_length: u64,
+    pub avg_length: f64,
+}
+
+pub struct RunStatistics {
+    pub entries: Vec<RunLengthEntry>,
+}
+
+impl RunStatistics {
+    pub fn from_directory(dir: &Path) -> io::Result<Self> {
+        let mut entries = Vec::new();
+        if !dir.exists() {
+            return Ok(Self { entries });
+        }
+
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy();
+            if let Some(run_id) = parse_run_id(&file_name) {
+                let length = count_elements_in_file(&entry.path())?;
+                entries.push(RunLengthEntry { run_id, length });
+            }
+        }
+        entries.sort_by_key(|entry| entry.run_id);
+        Ok(Self { entries })
+    }
+
+    pub fn summary(&self) -> Option<RunStatsSummary> {
+        if self.entries.is_empty() {
+            return None;
+        }
+        let mut total = 0_u64;
+        let mut min_length = self.entries[0].length;
+        let mut max_length = self.entries[0].length;
+        for entry in &self.entries {
+            total += entry.length;
+            if entry.length < min_length {
+                min_length = entry.length;
+            }
+            if entry.length > max_length {
+                max_length = entry.length;
+            }
+        }
+        Some(RunStatsSummary {
+            run_count: self.entries.len(),
+            total_length: total,
+            min_length,
+            max_length,
+            avg_length: total as f64 / self.entries.len() as f64,
+        })
+    }
+
+    pub fn write_report<P: AsRef<Path>>(&self, output_path: P) -> io::Result<()> {
+        let mut file = File::create(output_path)?;
+        writeln!(file, "run_id,run_length")?;
+        for entry in &self.entries {
+            writeln!(file, "{},{}", entry.run_id, entry.length)?;
+        }
+        Ok(())
+    }
+}
+
+fn count_elements_in_file(path: &Path) -> io::Result<u64> {
+    let file = File::open(path)?;
+    let mut reader = InputElementReader::new(file)?;
+    let mut count = 0_u64;
+    while reader.next_element()?.is_some() {
+        count += 1;
+    }
+    Ok(count)
+}
+
+pub struct MergePlanSummary {
+    pub merge_steps: Vec<String>,
+    pub leaf_count: usize,
+    pub max_depth: u32,
+    pub weighted_path_len: u64,
+}
+
+impl MergePlanSummary {
+    pub fn from_root(node: &MergeNode) -> Self {
+        let mut summary = Self {
+            merge_steps: Vec::new(),
+            leaf_count: 0,
+            max_depth: 0,
+            weighted_path_len: 0,
+        };
+        summary.collect(node, 0);
+        summary
+    }
+
+    fn collect(&mut self, node: &MergeNode, depth: u32) {
+        self.max_depth = self.max_depth.max(depth);
+
+        if node.leaf_id.is_some() {
+            self.leaf_count += 1;
+            self.weighted_path_len += node.weight * depth as u64;
+            return;
+        }
+
+        if let (Some(left), Some(right)) = (&node.left, &node.right) {
+            self.collect(left, depth + 1);
+            self.collect(right, depth + 1);
+            self.merge_steps.push(format!(
+                "{} + {} -> {}",
+                Self::describe(left),
+                Self::describe(right),
+                Self::describe(node)
+            ));
+        }
+    }
+
+    fn describe(node: &MergeNode) -> String {
+        match node.leaf_id {
+            Some(id) => format!("run_{}(len={})", id, node.weight),
+            None => format!("temp(len={})", node.weight),
+        }
+    }
+
+    pub fn write_report<P: AsRef<Path>>(&self, output_path: P) -> io::Result<()> {
+        let mut file = File::create(output_path)?;
+        writeln!(file, "# Merge Plan Summary")?;
+        writeln!(file, "leaf_count: {}", self.leaf_count)?;
+        writeln!(file, "max_depth: {}", self.max_depth)?;
+        writeln!(file, "weighted_path_length: {}", self.weighted_path_len)?;
+        writeln!(file, "")?;
+        writeln!(file, "steps:")?;
+        for (idx, step) in self.merge_steps.iter().enumerate() {
+            writeln!(file, "{}. {}", idx + 1, step)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct ExperimentConfig {
+    pub total_numbers: u64,
+    pub min_value: i32,
+    pub max_value: i32,
+    pub k_values: Vec<usize>,
+    pub input_file: String,
+    pub runs_dir: String,
+    pub sorted_output_file: String,
+    pub summary_csv: String,
+    pub run_stats_dir: String,
+    pub merge_plan_dir: String,
+}
+
+impl Default for ExperimentConfig {
+    fn default() -> Self {
+        Self {
+            total_numbers: 20_000,
+            min_value: -1_000,
+            max_value: 1_000,
+            k_values: vec![8, 16, 32, 64],
+            input_file: "nums.txt".into(),
+            runs_dir: "runs".into(),
+            sorted_output_file: "sorted_nums.txt".into(),
+            summary_csv: "origin_data.csv".into(),
+            run_stats_dir: "analysis/run_stats".into(),
+            merge_plan_dir: "analysis/merge_plans".into(),
+        }
+    }
+}
+
+pub struct ExperimentRunner;
+
+impl ExperimentRunner {
+    pub fn evaluate(config: ExperimentConfig) -> io::Result<()> {
+        let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+        let base_dir = format!("{}/data/project_3", cargo_manifest_dir);
+
+        let runs_dir_path = Path::new(&base_dir).join(&config.runs_dir);
+        let run_stats_dir_path = Path::new(&base_dir).join(&config.run_stats_dir);
+        let merge_plan_dir_path = Path::new(&base_dir).join(&config.merge_plan_dir);
+        let summary_csv_path = Path::new(&base_dir).join(&config.summary_csv);
+
+        fs::create_dir_all(&runs_dir_path)?;
+        fs::create_dir_all(&run_stats_dir_path)?;
+        fs::create_dir_all(&merge_plan_dir_path)?;
+
+        let mut summary_writer = BufWriter::new(File::create(&summary_csv_path)?);
+        writeln!(
+            summary_writer,
+            "k,run_count,total_numbers,min_run_length,max_run_length,avg_run_length,total_time_ms,max_tree_depth,weighted_path_length"
+        )?;
+
+        let source_generator = SourceFileGenerator::new(
+            config.total_numbers,
+            config.min_value,
+            config.max_value,
+            config.input_file.clone(),
+        );
+        source_generator.generate_file();
+
+        for &k in &config.k_values {
+            if k == 0 {
+                continue;
+            }
+
+            RunGenerator::clean_directory_contents(&runs_dir_path)?;
+
+            let mut run_generator = RunGenerator::new(config.input_file.clone(), k);
+            let mut merger = Merger::new(config.runs_dir.clone(), config.sorted_output_file.clone());
+
+            let start_time = Instant::now();
+            run_generator.generate_run_file();
+
+            let run_stats = RunStatistics::from_directory(&runs_dir_path)?;
+            let run_stats_file = run_stats_dir_path.join(format!("k_{}.csv", k));
+            run_stats.write_report(run_stats_file)?;
+
+            merger.build_merge_plan()?;
+            let plan_summary = merger
+                .merge_plan
+                .as_ref()
+                .map(|node| MergePlanSummary::from_root(node))
+                .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "merge plan is empty"))?;
+            let plan_report = merge_plan_dir_path.join(format!("k_{}.txt", k));
+            plan_summary.write_report(plan_report)?;
+
+            merger.merge_loop()?;
+            let elapsed_ms = start_time.elapsed().as_millis();
+
+            if let Some(summary) = run_stats.summary() {
+                writeln!(
+                    summary_writer,
+                    "{},{},{},{},{},{:.2},{},{},{}",
+                    k,
+                    summary.run_count,
+                    summary.total_length,
+                    summary.min_length,
+                    summary.max_length,
+                    summary.avg_length,
+                    elapsed_ms,
+                    plan_summary.max_depth,
+                    plan_summary.weighted_path_len
+                )?;
+            } else {
+                writeln!(
+                    summary_writer,
+                    "{},{},{},{},{},{:.2},{},{},{}",
+                    k, 0, 0, 0, 0, 0.0, elapsed_ms, plan_summary.max_depth, plan_summary.weighted_path_len
+                )?;
+            }
+        }
+
+        summary_writer.flush()?;
+        Ok(())
     }
 }
 

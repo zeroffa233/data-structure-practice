@@ -289,7 +289,6 @@ impl Calculator {
         }
 
         self.matrix_c = temp_matrix_c;
-        self.matrix_c.data_to_file();
     }
 
     fn calculate_ikj(&mut self, n: usize) {
@@ -307,7 +306,6 @@ impl Calculator {
         }
 
         self.matrix_c = temp_matrix_c;
-        self.matrix_c.data_to_file();
     }
 
     fn calculate_jik(&mut self, n: usize) {
@@ -325,7 +323,6 @@ impl Calculator {
         }
 
         self.matrix_c = temp_matrix_c;
-        self.matrix_c.data_to_file();
     }
 
     fn calculate_jki(&mut self, n: usize) {
@@ -343,7 +340,6 @@ impl Calculator {
         }
 
         self.matrix_c = temp_matrix_c;
-        self.matrix_c.data_to_file();
     }
 
     fn calculate_kij(&mut self, n: usize) {
@@ -361,7 +357,6 @@ impl Calculator {
         }
 
         self.matrix_c = temp_matrix_c;
-        self.matrix_c.data_to_file();
     }
 
     fn calculate_kji(&mut self, n: usize) {
@@ -379,21 +374,10 @@ impl Calculator {
         }
 
         self.matrix_c = temp_matrix_c;
-        self.matrix_c.data_to_file();
     }
 }
 
 impl Evaluator {
-    /// # 生成评测数据
-    ///
-    /// 因变量：cache miss count
-    ///
-    /// 自变量：循环顺序、dimension、cache line size、cache line number
-    ///
-    /// ## 输出
-    ///
-    /// 每个循环顺序一个文件，评测数据保存到 `./data/evaluation_results.csv`
-    ///
     pub fn evaluate(
         dimensions: Vec<u32>,
         cache_line_sizes: Vec<u32>,

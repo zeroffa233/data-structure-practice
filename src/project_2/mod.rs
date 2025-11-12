@@ -69,7 +69,7 @@ impl RunGenerator {
         let mut numbers: Vec<i32> = Vec::with_capacity(self.run_length as usize);
         let mut current_number = String::new();
 
-        // 4. 逐字节迭代处理
+        // 逐字节迭代处理
         for byte_result in reader.bytes() {
             let byte = byte_result.expect("Unable to read byte");
             let ch = byte as char;
@@ -77,7 +77,7 @@ impl RunGenerator {
             if ch.is_digit(10) || (ch == '-' && current_number.is_empty()) {
                 current_number.push(ch);
             } else if ch.is_whitespace() && !current_number.is_empty() {
-                // b. 遇到空格或换行，解析当前数字
+                // 遇到空格或换行，解析当前数字
                 if let Ok(num) = current_number.parse::<i32>() {
                     numbers.push(num);
                 }

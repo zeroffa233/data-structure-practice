@@ -1,0 +1,5 @@
+k,run_count,total_numbers,min_run_length,max_run_length,avg_run_length,total_time_ms,max_tree_depth,weighted_path_length
+8,7840,19989,0,19,2.55,25530,15,252961
+16,6316,19980,0,38,3.16,12639,15,241027
+32,6239,19959,0,76,3.20,5840,15,237321
+64,6520,19933,0,125,3.06,8625,15,239146
